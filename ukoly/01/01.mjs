@@ -33,4 +33,3 @@ while (attempts < maxAttempts) {
     );
   }
 }
-
