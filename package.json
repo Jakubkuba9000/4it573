@@ -1,0 +1,21 @@
+{
+  "name": "4it573",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/Jakubkuba9000/4it573#readme",
+  "bugs": {
+    "url": "https://github.com/Jakubkuba9000/4it573/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jakubkuba9000/4it573.git"
+  },
+  "license": "ISC",
+  "author": "Jakub Kafka",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node --watch index.js"
+  },
+  "dependencies": {}
+}
