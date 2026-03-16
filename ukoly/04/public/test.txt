@@ -1,0 +1,2 @@
+Toto je testovací soubor z adresáře public.
+
