@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="cs">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Goliathus denik</title>
+  </head>
+  <body>
+    <h1>Goliathus denik</h1>
+    <p>Jednoducha HTML aplikace pro ovladani chovatelskeho deniku.</p>
+
+    <p>
+      <a href="/api/export.json">Export JSON</a>
+      |
+      <a href="/api/export.csv">Export CSV</a>
+    </p>
+
+    <h2>Pridat jedince</h2>
+    <form id="beetle-form">
+      <p>
+        <label>
+          Druh:
+          <input name="species" required minlength="2" placeholder="Goliathus goliatus">
+        </label>
+      </p>
+      <p>
+        <label>
+          Pohlavi:
+          <select name="sex">
+            <option value="unknown">nezname</option>
+            <option value="male">samec</option>
+            <option value="female">samice</option>
+          </select>
+        </label>
+      </p>
+      <p>
+        <label>
+          Fotka:
+          <input name="photo" type="file" accept="image/*">
+        </label>
+      </p>
+      <button type="submit">Pridat jedince</button>
+    </form>
+
+    <h2>Jedinci</h2>
+    <p id="selected">Neni vybran zadny jedinec.</p>
+    <ul id="beetles"></ul>
+
+    <h2>Pridat zaznam k vybranemu jedinci</h2>
+    <form id="record-form">
+      <p>
+        <label>
+          Typ:
+          <select name="type">
+            <option value="feeding">krmeni</option>
+            <option value="weight">vazeni</option>
+            <option value="molting">svlekani</option>
+            <option value="pupation">kukleni</option>
+            <option value="emergence">vylihnuti</option>
+          </select>
+        </label>
+      </p>
+      <p>
+        <label>
+          Datum:
+          <input name="happenedAt" type="date" required>
+        </label>
+      </p>
+      <p>
+        <label>
+          Hodnota:
+          <input name="value" type="number" step="0.01" placeholder="napr. 38">
+        </label>
+      </p>
+      <p id="unit-row">
+        <label>
+          Jednotka:
+          <input name="unit" placeholder="napr. ks, g, ml">
+        </label>
+      </p>
+      <p id="feeding-type-row">
+        <label>
+          Typ krmeni:
+          <input name="feedingType" placeholder="napr. banan, jablko, protein jelly">
+        </label>
+      </p>
+      <button type="submit">Pridat zaznam</button>
+    </form>
+
+    <h2>Zaznamy vybraneho jedince</h2>
+    <ul id="records"></ul>
+
+    <h2>Zive notifikace</h2>
+    <ul id="notifications"></ul>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

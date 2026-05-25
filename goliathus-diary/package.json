@@ -1,0 +1,26 @@
+{
+  "name": "goliathus-denik",
+  "version": "1.0.0",
+  "description": "Chovatelsky denik pro brouky rodu Goliathus.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "nodejs",
+    "express",
+    "socket.io",
+    "sqlite",
+    "goliathus"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^12.10.0",
+    "express": "^5.1.0",
+    "socket.io": "^4.8.1"
+  }
+}
