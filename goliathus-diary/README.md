@@ -12,8 +12,7 @@ Semestralni aplikace v Node.js pro vedeni chovatelskeho deniku brouku rodu Golia
 - export celeho deniku do JSON nebo CSV
 - zive notifikace pres Socket.IO pri dulezitych udalostech
 - ukladani fotek do souboru a dat do SQLite databaze
-- jednoducha HTML stranka pro ovladani aplikace bez sloziteho frontendu
-- automatizovane testy API pomoci `node:test`
+- jednoducha HTML stranka pro ovladani aplikace
 
 ## Spusteni
 
