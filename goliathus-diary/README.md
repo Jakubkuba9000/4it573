@@ -5,7 +5,9 @@ Semestralni aplikace v Node.js pro vedeni chovatelskeho deniku brouku rodu Golia
 ## Funkce
 
 - sprava jedincu: druh, pohlavi, fotka
+- uprava a mazani jedincu
 - zaznamy k jedincum: krmeni, vazeni, svlekani, kukleni a vylihnuti
+- uprava a mazani zaznamu
 - krmeni uklada hodnotu, jednotku a typ krmeni
 - vazeni uklada hodnotu v gramech
 - svlekani, kukleni a vylihnuti ukladaji jen datum
@@ -55,11 +57,13 @@ Ukazka tela pro vytvoreni jedince:
 ```
 
 `sex` muze byt `male`, `female` nebo `unknown`.
+Fotka musi byt poslana jako base64 data URL, muze mit maximalne 5 MB a podporovane typy jsou JPEG, PNG, GIF a WebP.
 
 ### Zaznamy
 
 ```http
 POST /api/beetles/:id/records
+PUT /api/records/:id
 DELETE /api/records/:id
 ```
 
@@ -95,6 +99,7 @@ Ukazka datumove udalosti:
 ```
 
 `type` muze byt `feeding`, `weight`, `molting`, `pupation` nebo `emergence`.
+`happenedAt` musi byt platne datum ve formatu `RRRR-MM-DD` a nesmi byt v budoucnosti.
 
 ### Export
 
@@ -112,6 +117,7 @@ Server pouziva Socket.IO a emituje udalosti:
 - `beetle-updated`
 - `beetle-deleted`
 - `record-created`
+- `record-updated`
 - `record-deleted`
 
 ## Testy

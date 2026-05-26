@@ -15,7 +15,7 @@
       <a href="/api/export.csv">Export CSV</a>
     </p>
 
-    <h2>Pridat jedince</h2>
+    <h2 id="beetle-form-title">Pridat jedince</h2>
     <form id="beetle-form">
       <p>
         <label>
@@ -39,14 +39,15 @@
           <input name="photo" type="file" accept="image/*">
         </label>
       </p>
-      <button type="submit">Pridat jedince</button>
+      <button id="beetle-submit" type="submit">Pridat jedince</button>
+      <button id="beetle-cancel" type="button" hidden>Zrusit upravu</button>
     </form>
 
     <h2>Jedinci</h2>
     <p id="selected">Neni vybran zadny jedinec.</p>
     <ul id="beetles"></ul>
 
-    <h2>Pridat zaznam k vybranemu jedinci</h2>
+    <h2 id="record-form-title">Pridat zaznam k vybranemu jedinci</h2>
     <form id="record-form">
       <p>
         <label>
@@ -84,7 +85,8 @@
           <input name="feedingType" placeholder="napr. banan, jablko, protein jelly">
         </label>
       </p>
-      <button type="submit">Pridat zaznam</button>
+      <button id="record-submit" type="submit">Pridat zaznam</button>
+      <button id="record-cancel" type="button" hidden>Zrusit upravu</button>
     </form>
 
     <h2>Zaznamy vybraneho jedince</h2>

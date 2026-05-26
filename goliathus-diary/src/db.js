@@ -19,7 +19,6 @@ function migrate(db) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       species TEXT NOT NULL,
       sex TEXT NOT NULL CHECK (sex IN ('male', 'female', 'unknown')),
-      hatched_at TEXT,
       photo_path TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -32,7 +31,6 @@ function migrate(db) {
       value TEXT,
       unit TEXT,
       feeding_type TEXT,
-      note TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (beetle_id) REFERENCES beetles(id) ON DELETE CASCADE
     );
@@ -117,8 +115,11 @@ function createRepository(db) {
     },
 
     deleteBeetle(id) {
+      const beetle = db.prepare('SELECT * FROM beetles WHERE id = ?').get(id);
+      if (!beetle) return null;
+
       const result = db.prepare('DELETE FROM beetles WHERE id = ?').run(id);
-      return result.changes > 0;
+      return result.changes > 0 ? normalizeBeetle(beetle) : null;
     },
 
     createRecord(beetleId, input) {
@@ -141,9 +142,42 @@ function createRepository(db) {
       return normalizeRecord(record);
     },
 
+    updateRecord(id, input) {
+      const current = db.prepare('SELECT * FROM records WHERE id = ?').get(id);
+      if (!current) return null;
+
+      const next = {
+        type: input.type ?? current.type,
+        happenedAt: input.happenedAt ?? current.happened_at,
+        value: input.value ?? current.value,
+        unit: input.unit ?? current.unit,
+        feedingType: input.feedingType ?? current.feeding_type
+      };
+
+      validateRecord(next);
+      db.prepare(`
+        UPDATE records
+        SET type = ?, happened_at = ?, value = ?, unit = ?, feeding_type = ?
+        WHERE id = ?
+      `).run(
+        next.type,
+        next.happenedAt,
+        next.value || null,
+        next.unit || null,
+        next.feedingType || null,
+        id
+      );
+
+      const record = db.prepare('SELECT * FROM records WHERE id = ?').get(id);
+      return normalizeRecord(record);
+    },
+
     deleteRecord(id) {
+      const record = db.prepare('SELECT * FROM records WHERE id = ?').get(id);
+      if (!record) return null;
+
       const result = db.prepare('DELETE FROM records WHERE id = ?').run(id);
-      return result.changes > 0;
+      return result.changes > 0 ? normalizeRecord(record) : null;
     },
 
     exportDiary() {
@@ -157,35 +191,49 @@ function createRepository(db) {
 }
 
 function validateBeetle(input) {
-  if (!input.species || input.species.trim().length < 2) {
-    throw new Error('Druh musi mit alespon 2 znaky.');
+  if (!input || typeof input !== 'object') {
+    throw validationError('Jedinec musi byt objekt.');
+  }
+
+  if (typeof input.species !== 'string' || input.species.trim().length < 2) {
+    throw validationError('Druh musi mit alespon 2 znaky.');
   }
 
   if (!['male', 'female', 'unknown'].includes(input.sex)) {
-    throw new Error('Pohlavi musi byt male, female nebo unknown.');
+    throw validationError('Pohlavi musi byt male, female nebo unknown.');
   }
 }
 
 function validateRecord(input) {
-  if (!EVENT_TYPES.has(input.type)) {
-    throw new Error('Neznamy typ zaznamu.');
+  if (!input || typeof input !== 'object') {
+    throw validationError('Zaznam musi byt objekt.');
   }
 
-  if (!input.happenedAt) {
-    throw new Error('Datum udalosti je povinne.');
+  if (!EVENT_TYPES.has(input.type)) {
+    throw validationError('Neznamy typ zaznamu.');
+  }
+
+  if (!isValidDate(input.happenedAt)) {
+    throw validationError('Datum udalosti musi byt ve formatu RRRR-MM-DD.');
+  }
+
+  if (isFutureDate(input.happenedAt)) {
+    throw validationError('Datum udalosti nesmi byt v budoucnosti.');
   }
 
   if (input.type === 'feeding') {
-    if (!input.value || !input.unit || !input.feedingType) {
-      throw new Error('Krmeni musi mit hodnotu, jednotku a typ krmeni.');
+    input.value = normalizePositiveNumber(input.value, 'Hodnota krmeni');
+    input.unit = normalizeRequiredText(input.unit, 'Jednotka krmeni');
+    input.feedingType = normalizeRequiredText(input.feedingType, 'Typ krmeni');
+
+    if (!input.unit || !input.feedingType) {
+      throw validationError('Krmeni musi mit hodnotu, jednotku a typ krmeni.');
     }
     return;
   }
 
   if (input.type === 'weight') {
-    if (!input.value) {
-      throw new Error('Vazeni musi mit hodnotu v gramech.');
-    }
+    input.value = normalizePositiveNumber(input.value, 'Hodnota vazeni');
     input.unit = 'g';
     input.feedingType = null;
     return;
@@ -196,6 +244,40 @@ function validateRecord(input) {
     input.unit = null;
     input.feedingType = null;
   }
+}
+
+function isValidDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function isFutureDate(value) {
+  const today = new Date().toISOString().slice(0, 10);
+  return value > today;
+}
+
+function normalizePositiveNumber(value, label) {
+  const text = String(value ?? '').trim();
+  const number = Number(text);
+  if (!text || !Number.isFinite(number) || number <= 0) {
+    throw validationError(`${label} musi byt kladne cislo.`);
+  }
+  return text;
+}
+
+function normalizeRequiredText(value, label) {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    throw validationError(`${label} je povinny udaj.`);
+  }
+  return text;
+}
+
+function validationError(message) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  return error;
 }
 
 function normalizeBeetle(row) {

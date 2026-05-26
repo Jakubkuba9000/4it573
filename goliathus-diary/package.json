@@ -1,7 +1,7 @@
 {
   "name": "goliathus-denik",
   "version": "1.0.0",
-  "description": "Chovatelsky denik pro brouky rodu Goliathus.",
+  "description": "Diary for Goliathus breeders.",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
@@ -9,14 +9,7 @@
     "dev": "node --watch src/server.js",
     "test": "node --test"
   },
-  "keywords": [
-    "nodejs",
-    "express",
-    "socket.io",
-    "sqlite",
-    "goliathus"
-  ],
-  "author": "",
+  "author": "Jakub Kafka",
   "license": "MIT",
   "dependencies": {
     "better-sqlite3": "^12.10.0",
