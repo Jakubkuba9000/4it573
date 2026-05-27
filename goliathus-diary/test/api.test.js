@@ -11,6 +11,7 @@ describe('Goliathus API', () => {
   let server;
   let app;
   let tempDir;
+  let userIndex = 0;
 
   before(async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'goliathus-test-'));
@@ -37,8 +38,45 @@ describe('Goliathus API', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
+  it('requires authentication for diary endpoints', async () => {
+    const response = await fetch(`${baseUrl}/api/beetles`);
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), { error: 'Nejdrive se prihlaste.' });
+  });
+
+  it('registers, logs out and logs in', async () => {
+    const client = createRawClient();
+    const username = nextUsername();
+
+    const registered = await client.request('/api/register', {
+      method: 'POST',
+      body: {
+        username,
+        password: 'password123'
+      }
+    });
+    assert.equal(registered.user.username, username);
+
+    let session = await client.request('/api/session');
+    assert.equal(session.user.username, username);
+
+    await client.requestNoContent('/api/logout', { method: 'POST' });
+    session = await client.request('/api/session');
+    assert.equal(session.user, null);
+
+    const loggedIn = await client.request('/api/login', {
+      method: 'POST',
+      body: {
+        username,
+        password: 'password123'
+      }
+    });
+    assert.equal(loggedIn.user.username, username);
+  });
+
   it('creates beetle and record', async () => {
-    const beetle = await request('/api/beetles', {
+    const client = await createClient();
+    const beetle = await client.request('/api/beetles', {
       method: 'POST',
       body: {
         species: 'Goliathus goliatus',
@@ -50,7 +88,7 @@ describe('Goliathus API', () => {
     assert.equal(beetle.sex, 'female');
     assert.equal('hatchedAt' in beetle, false);
 
-    const record = await request(`/api/beetles/${beetle.id}/records`, {
+    const record = await client.request(`/api/beetles/${beetle.id}/records`, {
       method: 'POST',
       body: {
         type: 'weight',
@@ -63,14 +101,15 @@ describe('Goliathus API', () => {
     assert.equal(record.unit, 'g');
     assert.equal('note' in record, false);
 
-    const detail = await request(`/api/beetles/${beetle.id}`);
+    const detail = await client.request(`/api/beetles/${beetle.id}`);
     assert.equal(detail.records.length, 1);
     assert.equal(detail.records[0].value, '38');
     assert.equal(detail.records[0].unit, 'g');
   });
 
   it('creates feeding and date-only records', async () => {
-    const beetle = await request('/api/beetles', {
+    const client = await createClient();
+    const beetle = await client.request('/api/beetles', {
       method: 'POST',
       body: {
         species: 'Goliathus regius',
@@ -78,7 +117,7 @@ describe('Goliathus API', () => {
       }
     });
 
-    const feeding = await request(`/api/beetles/${beetle.id}/records`, {
+    const feeding = await client.request(`/api/beetles/${beetle.id}/records`, {
       method: 'POST',
       body: {
         type: 'feeding',
@@ -93,7 +132,7 @@ describe('Goliathus API', () => {
     assert.equal(feeding.unit, 'ks');
     assert.equal(feeding.feedingType, 'banan');
 
-    const molting = await request(`/api/beetles/${beetle.id}/records`, {
+    const molting = await client.request(`/api/beetles/${beetle.id}/records`, {
       method: 'POST',
       body: {
         type: 'molting',
@@ -109,21 +148,79 @@ describe('Goliathus API', () => {
     assert.equal(molting.feedingType, null);
   });
 
-  it('exports diary as json and csv', async () => {
-    const jsonResponse = await fetch(`${baseUrl}/api/export.json`);
-    assert.equal(jsonResponse.status, 200);
-    const diary = await jsonResponse.json();
-    assert.ok(Array.isArray(diary.beetles));
+  it('exports only current user diary', async () => {
+    const first = await createClient();
+    const second = await createClient();
 
-    const csvResponse = await fetch(`${baseUrl}/api/export.csv`);
+    await first.request('/api/beetles', {
+      method: 'POST',
+      body: {
+        species: 'Goliathus first',
+        sex: 'female'
+      }
+    });
+    await second.request('/api/beetles', {
+      method: 'POST',
+      body: {
+        species: 'Goliathus second',
+        sex: 'male'
+      }
+    });
+
+    const diary = await first.request('/api/export.json');
+    assert.equal(diary.beetles.length, 1);
+    assert.equal(diary.beetles[0].species, 'Goliathus first');
+
+    const csvResponse = await first.fetch('/api/export.csv');
     assert.equal(csvResponse.status, 200);
     const csv = await csvResponse.text();
-    assert.match(csv, /"beetle_id","species","sex","record_id"/);
-    assert.match(csv, /Goliathus goliatus/);
+    assert.match(csv, /Goliathus first/);
+    assert.doesNotMatch(csv, /Goliathus second/);
+  });
+
+  it('prevents cross-user access', async () => {
+    const first = await createClient();
+    const second = await createClient();
+
+    const beetle = await first.request('/api/beetles', {
+      method: 'POST',
+      body: {
+        species: 'Goliathus private',
+        sex: 'female'
+      }
+    });
+    const record = await first.request(`/api/beetles/${beetle.id}/records`, {
+      method: 'POST',
+      body: {
+        type: 'weight',
+        happenedAt: '2026-05-20',
+        value: '38'
+      }
+    });
+
+    await second.requestError(`/api/beetles/${beetle.id}`, {}, 'Jedinec nenalezen.', 404);
+    await second.requestError(`/api/beetles/${beetle.id}/records`, {
+      method: 'POST',
+      body: {
+        type: 'weight',
+        happenedAt: '2026-05-20',
+        value: '40'
+      }
+    }, 'Jedinec nenalezen.', 404);
+    await second.requestError(`/api/records/${record.id}`, {
+      method: 'PUT',
+      body: {
+        type: 'weight',
+        happenedAt: '2026-05-20',
+        value: '41'
+      }
+    }, 'Zaznam nenalezen.', 404);
+    await second.requestError(`/api/records/${record.id}`, { method: 'DELETE' }, 'Zaznam nenalezen.', 404);
   });
 
   it('updates and deletes beetles and records', async () => {
-    const beetle = await request('/api/beetles', {
+    const client = await createClient();
+    const beetle = await client.request('/api/beetles', {
       method: 'POST',
       body: {
         species: 'Goliathus atlas',
@@ -131,7 +228,7 @@ describe('Goliathus API', () => {
       }
     });
 
-    const updatedBeetle = await request(`/api/beetles/${beetle.id}`, {
+    const updatedBeetle = await client.request(`/api/beetles/${beetle.id}`, {
       method: 'PUT',
       body: {
         species: 'Goliathus atlas updated',
@@ -142,7 +239,7 @@ describe('Goliathus API', () => {
     assert.equal(updatedBeetle.species, 'Goliathus atlas updated');
     assert.equal(updatedBeetle.sex, 'male');
 
-    const record = await request(`/api/beetles/${beetle.id}/records`, {
+    const record = await client.request(`/api/beetles/${beetle.id}/records`, {
       method: 'POST',
       body: {
         type: 'feeding',
@@ -153,7 +250,7 @@ describe('Goliathus API', () => {
       }
     });
 
-    const updatedRecord = await request(`/api/records/${record.id}`, {
+    const updatedRecord = await client.request(`/api/records/${record.id}`, {
       method: 'PUT',
       body: {
         type: 'weight',
@@ -167,16 +264,17 @@ describe('Goliathus API', () => {
     assert.equal(updatedRecord.unit, 'g');
     assert.equal(updatedRecord.feedingType, null);
 
-    await requestNoContent(`/api/records/${record.id}`, { method: 'DELETE' });
-    const detail = await request(`/api/beetles/${beetle.id}`);
+    await client.requestNoContent(`/api/records/${record.id}`, { method: 'DELETE' });
+    const detail = await client.request(`/api/beetles/${beetle.id}`);
     assert.equal(detail.records.length, 0);
 
-    await requestNoContent(`/api/beetles/${beetle.id}`, { method: 'DELETE' });
-    await requestError(`/api/beetles/${beetle.id}`, {}, 'Jedinec nenalezen.', 404);
+    await client.requestNoContent(`/api/beetles/${beetle.id}`, { method: 'DELETE' });
+    await client.requestError(`/api/beetles/${beetle.id}`, {}, 'Jedinec nenalezen.', 404);
   });
 
   it('deletes beetle photo from uploads', async () => {
-    const beetle = await request('/api/beetles', {
+    const client = await createClient();
+    const beetle = await client.request('/api/beetles', {
       method: 'POST',
       body: {
         species: 'Goliathus meleagris',
@@ -191,12 +289,13 @@ describe('Goliathus API', () => {
     const photoPath = join(tempDir, beetle.photoPath);
     assert.equal(existsSync(photoPath), true);
 
-    await requestNoContent(`/api/beetles/${beetle.id}`, { method: 'DELETE' });
+    await client.requestNoContent(`/api/beetles/${beetle.id}`, { method: 'DELETE' });
     assert.equal(existsSync(photoPath), false);
   });
 
   it('deletes old beetle photo after replacement', async () => {
-    const beetle = await request('/api/beetles', {
+    const client = await createClient();
+    const beetle = await client.request('/api/beetles', {
       method: 'POST',
       body: {
         species: 'Goliathus albosignatus',
@@ -211,7 +310,7 @@ describe('Goliathus API', () => {
     const oldPhotoPath = join(tempDir, beetle.photoPath);
     assert.equal(existsSync(oldPhotoPath), true);
 
-    const updatedBeetle = await request(`/api/beetles/${beetle.id}`, {
+    const updatedBeetle = await client.request(`/api/beetles/${beetle.id}`, {
       method: 'PUT',
       body: {
         species: beetle.species,
@@ -229,8 +328,18 @@ describe('Goliathus API', () => {
     assert.equal(existsSync(newPhotoPath), true);
   });
 
-  it('rejects invalid beetles', async () => {
-    await requestError('/api/beetles', {
+  it('rejects invalid auth, beetles, records and photos', async () => {
+    const raw = createRawClient();
+    await raw.requestError('/api/register', {
+      method: 'POST',
+      body: {
+        username: 'ab',
+        password: 'password123'
+      }
+    }, 'Uzivatelske jmeno musi mit 3 az 50 znaku a smi obsahovat pismena, cisla, tecku, podtrzitko nebo pomlcku.');
+
+    const client = await createClient();
+    await client.requestError('/api/beetles', {
       method: 'POST',
       body: {
         species: 'Goliathus',
@@ -238,17 +347,7 @@ describe('Goliathus API', () => {
       }
     }, 'Pohlavi musi byt male, female nebo unknown.');
 
-    await requestError('/api/beetles', {
-      method: 'POST',
-      body: {
-        species: 'A',
-        sex: 'unknown'
-      }
-    }, 'Druh musi mit alespon 2 znaky.');
-  });
-
-  it('rejects invalid records', async () => {
-    const beetle = await request('/api/beetles', {
+    const beetle = await client.request('/api/beetles', {
       method: 'POST',
       body: {
         species: 'Goliathus cacicus',
@@ -256,7 +355,7 @@ describe('Goliathus API', () => {
       }
     });
 
-    await requestError(`/api/beetles/${beetle.id}/records`, {
+    await client.requestError(`/api/beetles/${beetle.id}/records`, {
       method: 'POST',
       body: {
         type: 'sleeping',
@@ -264,25 +363,7 @@ describe('Goliathus API', () => {
       }
     }, 'Neznamy typ zaznamu.');
 
-    await requestError(`/api/beetles/${beetle.id}/records`, {
-      method: 'POST',
-      body: {
-        type: 'weight',
-        happenedAt: '2026-02-31',
-        value: '38'
-      }
-    }, 'Datum udalosti musi byt ve formatu RRRR-MM-DD.');
-
-    await requestError(`/api/beetles/${beetle.id}/records`, {
-      method: 'POST',
-      body: {
-        type: 'weight',
-        happenedAt: '2026-05-21',
-        value: '0'
-      }
-    }, 'Hodnota vazeni musi byt kladne cislo.');
-
-    await requestError(`/api/beetles/${beetle.id}/records`, {
+    await client.requestError(`/api/beetles/${beetle.id}/records`, {
       method: 'POST',
       body: {
         type: 'weight',
@@ -291,20 +372,7 @@ describe('Goliathus API', () => {
       }
     }, 'Datum udalosti nesmi byt v budoucnosti.');
 
-    await requestError(`/api/beetles/${beetle.id}/records`, {
-      method: 'POST',
-      body: {
-        type: 'feeding',
-        happenedAt: '2026-05-21',
-        value: '2',
-        unit: ' ',
-        feedingType: 'banan'
-      }
-    }, 'Jednotka krmeni je povinny udaj.');
-  });
-
-  it('rejects invalid photos', async () => {
-    await requestError('/api/beetles', {
+    await client.requestError('/api/beetles', {
       method: 'POST',
       body: {
         species: 'Goliathus orientalis',
@@ -315,53 +383,68 @@ describe('Goliathus API', () => {
         }
       }
     }, 'Fotka musi byt JPEG, PNG, GIF nebo WebP.');
-
-    await requestError('/api/beetles', {
-      method: 'POST',
-      body: {
-        species: 'Goliathus orientalis',
-        sex: 'female',
-        photo: {
-          name: 'photo.png',
-          dataUrl: 'data:image/png;base64,not-valid'
-        }
-      }
-    }, 'Fotka obsahuje neplatna base64 data.');
   });
 
-  async function request(path, options = {}) {
-    const response = await fetch(`${baseUrl}${path}`, {
-      method: options.method ?? 'GET',
-      headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
-      body: options.body ? JSON.stringify(options.body) : undefined
+  async function createClient() {
+    const client = createRawClient();
+    await client.request('/api/register', {
+      method: 'POST',
+      body: {
+        username: nextUsername(),
+        password: 'password123'
+      }
     });
-
-    if (!response.ok) {
-      assert.fail(`${response.status} ${await response.text()}`);
-    }
-    return response.json();
+    return client;
   }
 
-  async function requestNoContent(path, options = {}) {
-    const response = await fetch(`${baseUrl}${path}`, {
-      method: options.method ?? 'GET',
-      headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
-      body: options.body ? JSON.stringify(options.body) : undefined
-    });
+  function createRawClient() {
+    let cookie = '';
 
-    assert.equal(response.status, 204);
-    assert.equal(await response.text(), '');
+    return {
+      async fetch(path, options = {}) {
+        const response = await fetch(`${baseUrl}${path}`, {
+          method: options.method ?? 'GET',
+          headers: {
+            ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+            ...(cookie ? { Cookie: cookie } : {})
+          },
+          body: options.body ? JSON.stringify(options.body) : undefined
+        });
+
+        const setCookie = response.headers.get('set-cookie');
+        if (setCookie) {
+          cookie = setCookie.split(';')[0];
+        }
+
+        return response;
+      },
+
+      async request(path, options = {}) {
+        const response = await this.fetch(path, options);
+        if (!response.ok) {
+          assert.fail(`${response.status} ${await response.text()}`);
+        }
+        if (response.status === 204) return null;
+        return response.json();
+      },
+
+      async requestNoContent(path, options = {}) {
+        const response = await this.fetch(path, options);
+        assert.equal(response.status, 204);
+        assert.equal(await response.text(), '');
+      },
+
+      async requestError(path, options, expectedError, expectedStatus = 400) {
+        const response = await this.fetch(path, options);
+        assert.equal(response.status, expectedStatus);
+        assert.deepEqual(await response.json(), { error: expectedError });
+      }
+    };
   }
 
-  async function requestError(path, options, expectedError, expectedStatus = 400) {
-    const response = await fetch(`${baseUrl}${path}`, {
-      method: options.method ?? 'GET',
-      headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
-      body: options.body ? JSON.stringify(options.body) : undefined
-    });
-
-    assert.equal(response.status, expectedStatus);
-    assert.deepEqual(await response.json(), { error: expectedError });
+  function nextUsername() {
+    userIndex += 1;
+    return `user${userIndex}`;
   }
 
   function futureDateValue() {

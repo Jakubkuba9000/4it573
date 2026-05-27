@@ -1,3 +1,9 @@
+const authSection = document.getElementById('auth-section');
+const appSection = document.getElementById('app-section');
+const loginForm = document.getElementById('login-form');
+const registerForm = document.getElementById('register-form');
+const logoutButton = document.getElementById('logout');
+const currentUser = document.getElementById('current-user');
 const beetleForm = document.getElementById('beetle-form');
 const recordForm = document.getElementById('record-form');
 const beetleFormTitle = document.getElementById('beetle-form-title');
@@ -31,11 +37,53 @@ let selectedBeetleId = null;
 let selectedBeetle = null;
 let editingBeetleId = null;
 let editingRecordId = null;
+let socket = null;
 
 recordForm.elements.happenedAt.max = todayDateValue();
 recordForm.elements.happenedAt.value = todayDateValue();
 recordForm.elements.type.addEventListener('change', updateRecordFields);
 updateRecordFields();
+
+loginForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = new FormData(loginForm);
+  const payload = {
+    username: form.get('username'),
+    password: form.get('password')
+  };
+
+  const session = await request('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  loginForm.reset();
+  await enterApp(session.user);
+});
+
+registerForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = new FormData(registerForm);
+  const payload = {
+    username: form.get('username'),
+    password: form.get('password')
+  };
+
+  const session = await request('/api/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  registerForm.reset();
+  await enterApp(session.user);
+});
+
+logoutButton.addEventListener('click', async () => {
+  await request('/api/logout', { method: 'POST' });
+  leaveApp();
+});
 
 beetleForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -94,6 +142,30 @@ recordForm.addEventListener('submit', async (event) => {
 });
 
 recordCancel.addEventListener('click', resetRecordForm);
+
+async function enterApp(user) {
+  currentUser.textContent = user.username;
+  authSection.hidden = true;
+  appSection.hidden = false;
+  clearSelectedBeetle();
+  notificationsList.innerHTML = '';
+  connectSocket();
+  await loadBeetles();
+}
+
+function leaveApp() {
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+  currentUser.textContent = '';
+  authSection.hidden = false;
+  appSection.hidden = true;
+  beetlesList.innerHTML = '';
+  notificationsList.innerHTML = '';
+  clearSelectedBeetle();
+  resetBeetleForm();
+}
 
 function updateRecordFields() {
   const type = recordForm.elements.type.value;
@@ -311,46 +383,57 @@ function addNotification(payload) {
   notificationsList.prepend(item);
 }
 
-const socket = io();
-socket.on('connected', addNotification);
-socket.on('beetle-created', async (payload) => {
-  addNotification(payload);
-  await loadBeetles();
-});
-socket.on('beetle-updated', async (payload) => {
-  addNotification(payload);
-  await loadBeetles();
-  if (selectedBeetleId === payload.beetle.id) {
-    await showBeetle(selectedBeetleId);
-  }
-});
-socket.on('beetle-deleted', async (payload) => {
-  addNotification(payload);
-  await loadBeetles();
-  if (selectedBeetleId === payload.beetleId) {
-    clearSelectedBeetle();
-  }
-});
-socket.on('record-created', async (payload) => {
-  addNotification(payload);
-  await loadBeetles();
-  if (selectedBeetleId === payload.beetleId) {
-    await showBeetle(selectedBeetleId);
-  }
-});
-socket.on('record-updated', async (payload) => {
-  addNotification(payload);
-  await loadBeetles();
-  if (selectedBeetleId === payload.beetleId) {
-    await showBeetle(selectedBeetleId);
-  }
-});
-socket.on('record-deleted', async (payload) => {
-  addNotification(payload);
-  await loadBeetles();
-  if (selectedBeetleId === payload.beetleId) {
-    await showBeetle(selectedBeetleId);
-  }
-});
+function connectSocket() {
+  if (socket) socket.disconnect();
+  socket = io();
+  socket.on('connected', addNotification);
+  socket.on('beetle-created', async (payload) => {
+    addNotification(payload);
+    await loadBeetles();
+  });
+  socket.on('beetle-updated', async (payload) => {
+    addNotification(payload);
+    await loadBeetles();
+    if (selectedBeetleId === payload.beetle.id) {
+      await showBeetle(selectedBeetleId);
+    }
+  });
+  socket.on('beetle-deleted', async (payload) => {
+    addNotification(payload);
+    await loadBeetles();
+    if (selectedBeetleId === payload.beetleId) {
+      clearSelectedBeetle();
+    }
+  });
+  socket.on('record-created', async (payload) => {
+    addNotification(payload);
+    await loadBeetles();
+    if (selectedBeetleId === payload.beetleId) {
+      await showBeetle(selectedBeetleId);
+    }
+  });
+  socket.on('record-updated', async (payload) => {
+    addNotification(payload);
+    await loadBeetles();
+    if (selectedBeetleId === payload.beetleId) {
+      await showBeetle(selectedBeetleId);
+    }
+  });
+  socket.on('record-deleted', async (payload) => {
+    addNotification(payload);
+    await loadBeetles();
+    if (selectedBeetleId === payload.beetleId) {
+      await showBeetle(selectedBeetleId);
+    }
+  });
+}
 
-loadBeetles();
+request('/api/session')
+  .then(async (session) => {
+    if (session.user) {
+      await enterApp(session.user);
+    } else {
+      leaveApp();
+    }
+  })
+  .catch(() => leaveApp());

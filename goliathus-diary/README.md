@@ -6,6 +6,8 @@ Semestralni aplikace v Node.js pro vedeni chovatelskeho deniku brouku rodu Golia
 
 - sprava jedincu: druh, pohlavi, fotka
 - uprava a mazani jedincu
+- registrace, prihlaseni a odhlaseni uzivatelu
+- oddelena data pro kazdeho uzivatele
 - zaznamy k jedincum: krmeni, vazeni, svlekani, kukleni a vylihnuti
 - uprava a mazani zaznamu
 - krmeni uklada hodnotu, jednotku a typ krmeni
@@ -33,6 +35,26 @@ Aplikace potom bezi na adrese `http://127.0.0.1:3000`.
 GET /api/health
 ```
 
+### Uzivatele
+
+```http
+GET /api/session
+POST /api/register
+POST /api/login
+POST /api/logout
+```
+
+Ukazka tela pro registraci nebo prihlaseni:
+
+```json
+{
+  "username": "chovatel",
+  "password": "tajneheslo"
+}
+```
+
+Heslo musi mit alespon 8 znaku. Server uklada hash hesla a prihlaseni drzi v `HttpOnly` session cookie.
+
 ### Jedinci
 
 ```http
@@ -58,6 +80,7 @@ Ukazka tela pro vytvoreni jedince:
 
 `sex` muze byt `male`, `female` nebo `unknown`.
 Fotka musi byt poslana jako base64 data URL, muze mit maximalne 5 MB a podporovane typy jsou JPEG, PNG, GIF a WebP.
+Endpointy pro jedince vraci a upravuji pouze data prihlaseneho uzivatele.
 
 ### Zaznamy
 
@@ -100,6 +123,7 @@ Ukazka datumove udalosti:
 
 `type` muze byt `feeding`, `weight`, `molting`, `pupation` nebo `emergence`.
 `happenedAt` musi byt platne datum ve formatu `RRRR-MM-DD` a nesmi byt v budoucnosti.
+Zaznamy lze vytvaret, upravovat a mazat pouze u jedincu prihlaseneho uzivatele.
 
 ### Export
 
@@ -107,6 +131,8 @@ Ukazka datumove udalosti:
 GET /api/export.json
 GET /api/export.csv
 ```
+
+Export obsahuje pouze data prihlaseneho uzivatele.
 
 ### Websockety
 

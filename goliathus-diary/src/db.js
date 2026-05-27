@@ -15,12 +15,29 @@ export function openDatabase(filePath = './data/goliathus.sqlite') {
 
 function migrate(db) {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS beetles (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
       species TEXT NOT NULL,
       sex TEXT NOT NULL CHECK (sex IN ('male', 'female', 'unknown')),
       photo_path TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS records (
@@ -36,6 +53,7 @@ function migrate(db) {
     );
   `);
 
+  addColumnIfMissing(db, 'beetles', 'user_id', 'INTEGER');
   addColumnIfMissing(db, 'records', 'unit', 'TEXT');
   addColumnIfMissing(db, 'records', 'feeding_type', 'TEXT');
 }
@@ -53,7 +71,66 @@ function createRepository(db) {
       db.close();
     },
 
-    listBeetles() {
+    createUser(input) {
+      validateUser(input);
+      const userCount = db.prepare('SELECT COUNT(*) AS count FROM users').get().count;
+      const result = db.prepare(`
+        INSERT INTO users (username, password_hash)
+        VALUES (?, ?)
+      `).run(normalizeUsername(input.username), input.passwordHash);
+
+      const user = this.getUserById(Number(result.lastInsertRowid));
+      if (userCount === 0) {
+        db.prepare('UPDATE beetles SET user_id = ? WHERE user_id IS NULL').run(user.id);
+      }
+      return user;
+    },
+
+    getUserById(id) {
+      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+      return user ? normalizeUser(user) : null;
+    },
+
+    getUserByUsername(username) {
+      const user = db.prepare('SELECT * FROM users WHERE username = ?').get(normalizeUsername(username));
+      return user ? normalizeUser(user) : null;
+    },
+
+    createSession(userId, token, expiresAt) {
+      db.prepare(`
+        INSERT INTO sessions (token, user_id, expires_at)
+        VALUES (?, ?, ?)
+      `).run(token, userId, expiresAt);
+    },
+
+    getSession(token) {
+      const session = db.prepare(`
+        SELECT
+          s.token,
+          s.expires_at,
+          u.id AS user_id,
+          u.username
+        FROM sessions s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.token = ?
+      `).get(token);
+
+      if (!session || session.expires_at <= new Date().toISOString()) return null;
+      return {
+        token: session.token,
+        expiresAt: session.expires_at,
+        user: {
+          id: session.user_id,
+          username: session.username
+        }
+      };
+    },
+
+    deleteSession(token) {
+      db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+    },
+
+    listBeetles(userId) {
       const beetles = db.prepare(`
         SELECT
           b.*,
@@ -61,15 +138,16 @@ function createRepository(db) {
           MAX(r.happened_at) AS last_record_at
         FROM beetles b
         LEFT JOIN records r ON r.beetle_id = b.id
+        WHERE b.user_id = ?
         GROUP BY b.id
         ORDER BY b.created_at DESC, b.id DESC
-      `).all();
+      `).all(userId);
 
       return beetles.map(normalizeBeetle);
     },
 
-    getBeetle(id) {
-      const beetle = db.prepare('SELECT * FROM beetles WHERE id = ?').get(id);
+    getBeetle(userId, id) {
+      const beetle = db.prepare('SELECT * FROM beetles WHERE id = ? AND user_id = ?').get(id, userId);
       if (!beetle) return null;
 
       const records = db.prepare(`
@@ -84,18 +162,18 @@ function createRepository(db) {
       };
     },
 
-    createBeetle(input) {
+    createBeetle(userId, input) {
       validateBeetle(input);
       const result = db.prepare(`
-        INSERT INTO beetles (species, sex, photo_path)
-        VALUES (?, ?, ?)
-      `).run(input.species.trim(), input.sex, input.photoPath || null);
+        INSERT INTO beetles (user_id, species, sex, photo_path)
+        VALUES (?, ?, ?, ?)
+      `).run(userId, input.species.trim(), input.sex, input.photoPath || null);
 
-      return this.getBeetle(Number(result.lastInsertRowid));
+      return this.getBeetle(userId, Number(result.lastInsertRowid));
     },
 
-    updateBeetle(id, input) {
-      const current = this.getBeetle(id);
+    updateBeetle(userId, id, input) {
+      const current = this.getBeetle(userId, id);
       if (!current) return null;
 
       const next = {
@@ -108,22 +186,22 @@ function createRepository(db) {
       db.prepare(`
         UPDATE beetles
         SET species = ?, sex = ?, photo_path = ?
-        WHERE id = ?
-      `).run(next.species.trim(), next.sex, next.photoPath || null, id);
+        WHERE id = ? AND user_id = ?
+      `).run(next.species.trim(), next.sex, next.photoPath || null, id, userId);
 
-      return this.getBeetle(id);
+      return this.getBeetle(userId, id);
     },
 
-    deleteBeetle(id) {
-      const beetle = db.prepare('SELECT * FROM beetles WHERE id = ?').get(id);
+    deleteBeetle(userId, id) {
+      const beetle = db.prepare('SELECT * FROM beetles WHERE id = ? AND user_id = ?').get(id, userId);
       if (!beetle) return null;
 
-      const result = db.prepare('DELETE FROM beetles WHERE id = ?').run(id);
+      const result = db.prepare('DELETE FROM beetles WHERE id = ? AND user_id = ?').run(id, userId);
       return result.changes > 0 ? normalizeBeetle(beetle) : null;
     },
 
-    createRecord(beetleId, input) {
-      if (!this.getBeetle(beetleId)) return null;
+    createRecord(userId, beetleId, input) {
+      if (!this.getBeetle(userId, beetleId)) return null;
       validateRecord(input);
 
       const result = db.prepare(`
@@ -138,20 +216,29 @@ function createRepository(db) {
         input.feedingType || null
       );
 
-      const record = db.prepare('SELECT * FROM records WHERE id = ?').get(Number(result.lastInsertRowid));
-      return normalizeRecord(record);
+      return this.getRecord(userId, Number(result.lastInsertRowid));
     },
 
-    updateRecord(id, input) {
-      const current = db.prepare('SELECT * FROM records WHERE id = ?').get(id);
+    getRecord(userId, id) {
+      const record = db.prepare(`
+        SELECT r.*
+        FROM records r
+        JOIN beetles b ON b.id = r.beetle_id
+        WHERE r.id = ? AND b.user_id = ?
+      `).get(id, userId);
+      return record ? normalizeRecord(record) : null;
+    },
+
+    updateRecord(userId, id, input) {
+      const current = this.getRecord(userId, id);
       if (!current) return null;
 
       const next = {
         type: input.type ?? current.type,
-        happenedAt: input.happenedAt ?? current.happened_at,
+        happenedAt: input.happenedAt ?? current.happenedAt,
         value: input.value ?? current.value,
         unit: input.unit ?? current.unit,
-        feedingType: input.feedingType ?? current.feeding_type
+        feedingType: input.feedingType ?? current.feedingType
       };
 
       validateRecord(next);
@@ -168,26 +255,39 @@ function createRepository(db) {
         id
       );
 
-      const record = db.prepare('SELECT * FROM records WHERE id = ?').get(id);
-      return normalizeRecord(record);
+      return this.getRecord(userId, id);
     },
 
-    deleteRecord(id) {
-      const record = db.prepare('SELECT * FROM records WHERE id = ?').get(id);
+    deleteRecord(userId, id) {
+      const record = this.getRecord(userId, id);
       if (!record) return null;
 
       const result = db.prepare('DELETE FROM records WHERE id = ?').run(id);
-      return result.changes > 0 ? normalizeRecord(record) : null;
+      return result.changes > 0 ? record : null;
     },
 
-    exportDiary() {
-      const beetles = this.listBeetles().map((beetle) => this.getBeetle(beetle.id));
+    exportDiary(userId) {
+      const beetles = this.listBeetles(userId).map((beetle) => this.getBeetle(userId, beetle.id));
       return {
         exportedAt: new Date().toISOString(),
         beetles
       };
     }
   };
+}
+
+function validateUser(input) {
+  if (!input || typeof input !== 'object') {
+    throw validationError('Uzivatel musi byt objekt.');
+  }
+
+  if (!isValidUsername(input.username)) {
+    throw validationError('Uzivatelske jmeno musi mit 3 az 50 znaku a smi obsahovat pismena, cisla, tecku, podtrzitko nebo pomlcku.');
+  }
+
+  if (typeof input.passwordHash !== 'string' || !input.passwordHash) {
+    throw validationError('Hash hesla je povinny.');
+  }
 }
 
 function validateBeetle(input) {
@@ -225,10 +325,6 @@ function validateRecord(input) {
     input.value = normalizePositiveNumber(input.value, 'Hodnota krmeni');
     input.unit = normalizeRequiredText(input.unit, 'Jednotka krmeni');
     input.feedingType = normalizeRequiredText(input.feedingType, 'Typ krmeni');
-
-    if (!input.unit || !input.feedingType) {
-      throw validationError('Krmeni musi mit hodnotu, jednotku a typ krmeni.');
-    }
     return;
   }
 
@@ -244,6 +340,14 @@ function validateRecord(input) {
     input.unit = null;
     input.feedingType = null;
   }
+}
+
+function isValidUsername(value) {
+  return typeof value === 'string' && /^[a-zA-Z0-9_.-]{3,50}$/.test(value.trim());
+}
+
+function normalizeUsername(value) {
+  return value.trim().toLowerCase();
 }
 
 function isValidDate(value) {
@@ -280,9 +384,19 @@ function validationError(message) {
   return error;
 }
 
+function normalizeUser(row) {
+  return {
+    id: row.id,
+    username: row.username,
+    passwordHash: row.password_hash,
+    createdAt: row.created_at
+  };
+}
+
 function normalizeBeetle(row) {
   return {
     id: row.id,
+    userId: row.user_id,
     species: row.species,
     sex: row.sex,
     photoPath: row.photo_path,

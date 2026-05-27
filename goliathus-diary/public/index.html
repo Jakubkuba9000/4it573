@@ -9,6 +9,48 @@
     <h1>Goliathus denik</h1>
     <p>Jednoducha HTML aplikace pro ovladani chovatelskeho deniku.</p>
 
+    <section id="auth-section">
+      <h2>Prihlaseni</h2>
+      <form id="login-form">
+        <p>
+          <label>
+            Uzivatelske jmeno:
+            <input name="username" required minlength="3" autocomplete="username">
+          </label>
+        </p>
+        <p>
+          <label>
+            Heslo:
+            <input name="password" type="password" required minlength="8" autocomplete="current-password">
+          </label>
+        </p>
+        <button type="submit">Prihlasit</button>
+      </form>
+
+      <h2>Registrace</h2>
+      <form id="register-form">
+        <p>
+          <label>
+            Uzivatelske jmeno:
+            <input name="username" required minlength="3" autocomplete="username">
+          </label>
+        </p>
+        <p>
+          <label>
+            Heslo:
+            <input name="password" type="password" required minlength="8" autocomplete="new-password">
+          </label>
+        </p>
+        <button type="submit">Registrovat</button>
+      </form>
+    </section>
+
+    <main id="app-section" hidden>
+    <p>
+      Prihlasen: <strong id="current-user"></strong>
+      <button id="logout" type="button">Odhlasit</button>
+    </p>
+
     <p>
       <a href="/api/export.json">Export JSON</a>
       |
@@ -94,6 +136,7 @@
 
     <h2>Zive notifikace</h2>
     <ul id="notifications"></ul>
+    </main>
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="/app.js"></script>
